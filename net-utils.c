@@ -27,6 +27,7 @@
 #include <arpa/inet.h>
 
 #include <linux/if.h>
+#include <net/if.h>
 #include <linux/sockios.h>
 #include <linux/route.h>
 #include <linux/wireless.h>
@@ -48,7 +49,7 @@ static const char *ipaddr_to_string(in_addr_t addr)
 int ifc_init(void)
 {
     if (ifc_ctl_sock == -1) {
-	ifc_ctl_sock = socket(AF_INET, SOCK_DGRAM, 0);
+	ifc_ctl_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
 	if (ifc_ctl_sock < 0)
 	    ALOGE("%s() socket() failed: %s", __func__, strerror(errno));
     }
@@ -149,7 +150,6 @@ int ifc_configure(const char *ifname,
 	ifc_close();
 	return -1;
     }
-
     ifc_close();
 
     return 0;
