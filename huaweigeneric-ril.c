@@ -4654,7 +4654,7 @@ static void requestRegistrationState(RIL_Token t, int data)
         asprintf(&responseStr[3], "%d", response[3]);
 
     if (data == 1)
-	responseStr[5] = (char*) "1";
+	asprintf(&responseStr[5], "%d",(char*) "1");
 
     RIL_onRequestComplete(t, RIL_E_SUCCESS, responseStr,
                           resp_size * sizeof(char *));
