@@ -134,6 +134,17 @@ C = is for?
 #define TIMEOUT_EMRDY 10 /* Module should respond at least within 10s */
 #define MAX_BUF 1024
 
+// TECH returns the current technology in the format used by the modem.
+// It can be used as an l-value
+#define TECH(mdminfo)                 ((mdminfo)->currentTech)
+// TECH_BIT returns the bitmask equivalent of the current tech
+#define TECH_BIT(mdminfo)            (1 << ((mdminfo)->currentTech))
+#define IS_MULTIMODE(mdminfo)         ((mdminfo)->isMultimode)
+#define TECH_SUPPORTED(mdminfo, tech) ((mdminfo)->supportedTechs & (tech))
+#define PREFERRED_NETWORK(mdminfo)    ((mdminfo)->preferredNetworkMode)
+// CDMA Subscription Source
+#define SSOURCE(mdminfo)              ((mdminfo)->subscription_source)
+
 /** declarations */
 static const char *getVersion();
 static void signalCloseQueues(void);
@@ -177,7 +188,7 @@ static int lastCallIdx = 0;
 /* Last call fail cause */
 static int lastCallFailCause = CALL_FAIL_NORMAL;
 
-#define RNDIS_IFACE "rmnet0"
+#define RNDIS_IFACE "eth1"
 #define PPP_IFACE   "ppp0"
 
 static RIL_RadioState sState = RADIO_STATE_UNAVAILABLE;
@@ -229,6 +240,8 @@ static RequestQueue s_requestQueue = {
 static RequestQueue *s_requestQueues[] = {
     &s_requestQueue
 };
+
+
 
 /* The Audio channel */
 static struct GsmAudioTunnel sAudioChannel;
@@ -1185,31 +1198,32 @@ static int dial_at_modem(const char* cmd, int skipanswerwait)
 
 static int killConn(const char* cididx)
 {
+	char pName[32]={'\0'};
 	/* Leave NDIS mode */
 	if (!pppSupported())
 		at_send_command("AT^NDISDUP=%s,0",cididx);
-	
+
 	/* Leave Data context mode */
-    at_send_command("AT+CGACT=0,%s", cididx);
+	at_send_command("AT+CGACT=0,%s", cididx);
 
 	/* Hang up */
-    at_send_command("ATH");
+	at_send_command("ATH");
 
 	/* Kill pppd daemon (just in case)*/
 	system("killall pppd");
-	
+
 	/* Hang up modem, if needed */
 	//dial_at_modem("+++",1);
-	dial_at_modem("ATH\r\n",1);
-	
+	//dial_at_modem("ATH\r\n",1);
+
 	/* Bring down all interfaces */
 	if (ifc_init() == 0) {
 		ifc_down(RNDIS_IFACE);
 		ifc_down(PPP_IFACE);
 		ifc_close();
-    } 
-	
-    return 0;
+	} 
+
+	return 0;
 }
 
 #define LOG_FILE_DIR    "/dev/log/"
@@ -1379,13 +1393,13 @@ static int setupPPP(RIL_Token t,const char* ctxid,const char* user,const char* p
 	int ctr = 10;
 	struct timeval from_tm;
 
-    RIL_Data_Call_Response_v6 responses;
+	RIL_Data_Call_Response_v6 responses;
 	char ppp_ifname[PROPERTY_VALUE_MAX] = {'\0'};
-    char ppp_local_ip[PROPERTY_VALUE_MAX] = {'\0'};
-    char ppp_dns1[PROPERTY_VALUE_MAX] = {'\0'};
-    char ppp_dns2[PROPERTY_VALUE_MAX] = {'\0'};
+	char ppp_local_ip[PROPERTY_VALUE_MAX] = {'\0'};
+	char ppp_dns1[PROPERTY_VALUE_MAX] = {'\0'};
+	char ppp_dns2[PROPERTY_VALUE_MAX] = {'\0'};
 	char ppp_dnses[(PROPERTY_VALUE_MAX * 2) + 3] = {'\0'};
-    char ppp_gw[PROPERTY_VALUE_MAX] = {'\0'};
+	char ppp_gw[PROPERTY_VALUE_MAX] = {'\0'};
 	char pbuf[32] = {'\0'};
 
 
@@ -1395,12 +1409,13 @@ static int setupPPP(RIL_Token t,const char* ctxid,const char* user,const char* p
 	//err = at_send_command("AT+CGACT=%s",ctxid);
 	
 	/* Try just with data context activation */
+#if 0
 	asprintf(&cmd,"AT+CGDATA=\"PPP\",%s\r\n",ctxid);
 	err = dial_at_modem(cmd,0);
 	free(cmd);
 	if (err) {
 		/* If failed, retry with dial command */
-		asprintf(&cmd,"ATD*99***%s#\r\n",ctxid);
+		asprintf(&cmd,"ATDT*99#\r\n");
 		err = dial_at_modem(cmd,0);
 		free(cmd);
 		if (err) {
@@ -1411,7 +1426,7 @@ static int setupPPP(RIL_Token t,const char* ctxid,const char* user,const char* p
 	
 	/* Wait for the modem to finish */
 	sleep(2);
-	
+#endif	
 	/* original options
 	"nodetach debug noauth defaultroute usepeerdns "
 	"connect-delay 1000 "
@@ -1421,6 +1436,7 @@ static int setupPPP(RIL_Token t,const char* ctxid,const char* user,const char* p
 	*/
 	
 	/* start the gprs pppd - pppd must be suid root */
+#if 0
 	if (user == NULL || user[0] == 0 ||
 		pass == NULL || pass[0] == 0 ) {
 		
@@ -1451,16 +1467,17 @@ static int setupPPP(RIL_Token t,const char* ctxid,const char* user,const char* p
 		"lcp-echo-failure 0 lcp-echo-interval 0 ipcp-max-configure 30 "
 		"ipcp-max-failure 30 ipcp-max-terminate 10";
 	}
+#endif
+	fmt = "/system/bin/pppd call provider";
+	//asprintf(&cmd,fmt,ppp_iface_dev,ctxid, ((user && user[0])? user: "guest"), ((pass && pass[0])? pass: "guest") );
 	
-	asprintf(&cmd,fmt,ppp_iface_dev,ctxid, ((user && user[0])? user: "guest"), ((pass && pass[0])? pass: "guest") );
-	
-	ALOGD("Starting pppd w/command line: '%s'",cmd);
+	ALOGD("Starting pppd w/command line: '%s'",fmt);
 	
 	// Get current time
 	gettimeofday(&from_tm,NULL);
 	
 	// Start PPPD
-    system(cmd);
+	system(fmt);
 	free(cmd);
 	
 #if 1
@@ -1520,8 +1537,8 @@ static int setupPPP(RIL_Token t,const char* ctxid,const char* user,const char* p
 
     sprintf(ppp_dnses, "%s %s", ppp_dns1, ppp_dns2);
 
-	ALOGI("Got ifname: %s, local-ip: %s, dns1: %s, dns2: %s, gw: %s\n",
-		ppp_ifname, ppp_local_ip, ppp_dns1, ppp_dns2, ppp_gw);
+    ALOGI("Got ifname: %s, local-ip: %s, dns1: %s, dns2: %s, gw: %s\n",
+		    ppp_ifname, ppp_local_ip, ppp_dns1, ppp_dns2, ppp_gw);
 
     responses.status = 0;
     responses.suggestedRetryTime = -1;
@@ -1560,28 +1577,55 @@ static int setupNDIS(RIL_Token t,const char* ctxid)
     char rndis_dns1[32] = {'\0'};
     char rndis_dns2[32] = {'\0'};
     char rndis_gw[32] = {'\0'};
-	
-	in_addr_t in_addr;
+    char pName[32] = {'\0'};
+
+    in_addr_t in_addr;
     in_addr_t in_gateway;
- 	
+
     int err;
     char *line;
-	char *ip = NULL;
-	char *netmask = NULL;
-	char *gateway = NULL;
-	char *unk = NULL;
-	char *dns1 = NULL;
-	char *dns2 = NULL; 	
+    char *ip = NULL;
+    char *netmask = NULL;
+    char *gateway = NULL;
+    char *unk = NULL;
+    char *dns1 = NULL;
+    char *dns2 = NULL; 	
+    int started = 0;
+    int count = 0;
 
-	ALOGD("Trying to setup NDIS connnection...");
-	
-	/* Enter data state using context #1 as NDIS */
+    ALOGD("Trying to setup NDIS connnection...");
+
+
+    /* Enter data state using context #1 as NDIS */
     err = at_send_command("AT^NDISDUP=%s,1",ctxid);
-	if (err != AT_NOERROR) 
-		return -1;
+    if (err != AT_NOERROR) 
+	    return -1;
 
-	/* Leave 10 seconds for startup */
-	sleep(10);
+    /* Leave 10 seconds for startup */
+    sleep(2);
+    while(!started && count < 10){
+	    err = at_send_command_singleline("AT^NDISSTATQRY?","^NDISSTATQRY:",&atResponse);
+	    if(err != AT_NOERROR){
+		    ALOGE("Query PDP State Failed!");
+	    }
+	    line = atResponse->p_intermediates->line;
+	    err = at_tok_start(&line);
+
+	    err = at_tok_nextint(&line,&started);
+
+	count++;
+	if(started == 1)
+		ALOGI("PDP Activated!");
+	else
+		ALOGI("PDP not Activated, retry");
+	sleep(1);
+
+    }
+
+    if(started ==0 && count >=10){
+	    ALOGE("Fail to Activate PDP");
+	    goto error;
+    }
 		
     /* Check DHCP status */
     err = at_send_command_singleline("AT^DHCP?", "^DHCP:", &atResponse);
@@ -1629,7 +1673,7 @@ static int setupNDIS(RIL_Token t,const char* ctxid)
 	} 
 	
     at_response_free(atResponse);
-	
+
     responses.status = 0;
     responses.suggestedRetryTime = -1;
     responses.cid = 1;
@@ -1643,10 +1687,8 @@ static int setupNDIS(RIL_Token t,const char* ctxid)
     /* Don't use android netutils. We use our own and get the routing correct.
      * Carl Nordbeck */
     if (ifc_configure(RNDIS_IFACE, in_addr, in_gateway))
-        ALOGE("%s() Failed to configure the interface %s", __func__, RNDIS_IFACE); 	
-	
-	using_rndis = 1;
-	
+	    ALOGE("%s() Failed to configure the interface %s", __func__, RNDIS_IFACE); 	
+    using_rndis = 1;
     RIL_onRequestComplete(t, RIL_E_SUCCESS, &responses, sizeof(RIL_Data_Call_Response_v6));
     return 0;
 
@@ -1661,35 +1703,35 @@ error:
 static int pppSupported(void)
 {
 	ATResponse *atResponse = NULL;
- 	
-    int err;
+
+	int err;
 	int supp_mode = 0; // PPP
-    char *line;
+	char *line;
 
 	ALOGD("Identifying modem capabilities...");
-	
-    /* Check Modem capabilities */
-    err = at_send_command_singleline("AT^DIALMODE?", "^DIALMODE:", &atResponse);
-    if (err != AT_NOERROR)
-        goto error;
 
-    line = atResponse->p_intermediates->line;
-    err = at_tok_start(&line);
-    if (err < 0) goto error;
+	/* Check Modem capabilities */
+	err = at_send_command_singleline("AT^DIALMODE?", "^DIALMODE:", &atResponse);
+	if (err != AT_NOERROR)
+		goto error;
 
-    err = at_tok_nextint(&line, &supp_mode);
-    if (err < 0) goto error;
+	line = atResponse->p_intermediates->line;
+	err = at_tok_start(&line);
+	if (err < 0) goto error;
+
+	err = at_tok_nextint(&line, &supp_mode);
+	if (err < 0) goto error;
 
 	ALOGD("Modem mode: %d [0=ppp,1=ndis,2=ppp&ndis",supp_mode);
-	
-    at_response_free(atResponse);
-	
+
+	at_response_free(atResponse);
+
 	return supp_mode != 1; // ppp supported
-	
+
 error:
 	ALOGD("Assuming PPP mode");
-    at_response_free(atResponse);
-    return 1;
+	at_response_free(atResponse);
+	return 1;
 }
 
 static void requestSetupDefaultPDP(void *data, size_t datalen, RIL_Token t)
@@ -1728,10 +1770,10 @@ static void requestSetupDefaultPDP(void *data, size_t datalen, RIL_Token t)
     err = at_send_command("AT+CGDCONT=%s,\"IP\",\"%s\"",ctxid, apn);
 
     /* Set required QoS params to default */
-    err = at_send_command("AT+CGQREQ=%s",ctxid);
+    //err = at_send_command("AT+CGQREQ=%s",ctxid);
 
     /* Set minimum QoS params to default */
-    err = at_send_command("AT+CGQMIN=%s",ctxid);
+    //err = at_send_command("AT+CGQMIN=%s",ctxid);
 
 	/* Attach to GPRS network */
 	err = at_send_command("AT+CGATT=1");
@@ -4464,12 +4506,15 @@ enum CREG_stat {
  *
  * Request current registration state.
  */
+#define REG_STATE_LEN 15
+#define REG_DATA_STATE_LEN 5
 static void requestRegistrationState(RIL_Token t, int data)
 {
     int err = 0;
     const char resp_size = 15;
     int response[15];
     char *responseStr[15] = {0};
+    int numElements = 0;
     ATResponse *cgreg_resp = NULL;
     char *line;
     int commas = 0;
@@ -4481,6 +4526,12 @@ static void requestRegistrationState(RIL_Token t, int data)
     /* Setting default values in case values are not returned by AT command */
     for (i = 0; i < resp_size; i++)
         responseStr[i] = NULL;
+
+    if(data ==1 ){
+	    numElements = REG_DATA_STATE_LEN;
+    }else{
+	    numElements = REG_STATE_LEN;
+    }	
 
     memset(response, 0, sizeof(response));
 
@@ -4654,15 +4705,18 @@ static void requestRegistrationState(RIL_Token t, int data)
         asprintf(&responseStr[3], "%d", response[3]);
 
     if (data == 1)
-	asprintf(&responseStr[5], "%d",(char*) "1");
+	asprintf(&responseStr[5], "%d", (char*) "1");
 
     RIL_onRequestComplete(t, RIL_E_SUCCESS, responseStr,
                           resp_size * sizeof(char *));
 
 finally:
 
-    for (i = 0; i < resp_size; i++)
-        free(responseStr[i]);
+
+    for (i = 0; i < resp_size; i++){
+	free(responseStr[i]);
+	responseStr[i] = NULL;
+    }
 
     at_response_free(cgreg_resp);
     return;
@@ -5178,6 +5232,7 @@ static void unsolicitedMode(const char * s)
 	5    HSDPA mode
 	6    HSUPA mode
 	7    HSDPA mode and HSUPA mode
+	9    HSPA+ mode
 	*/
 
 	line = strdup(s);
@@ -5191,6 +5246,7 @@ static void unsolicitedMode(const char * s)
 	err = at_tok_nextint(&line, &sys_submode);
 	if (err < 0) goto error;
 
+	ALOGI("sys_submode %d",sys_submode);
 	switch (sys_submode)
 	{
 		case 0:
@@ -5217,10 +5273,17 @@ static void unsolicitedMode(const char * s)
 		case 7:
 			android_mode = RADIO_TECH_HSPA;
 			break;
+		case 9:
+			android_mode = RADIO_TECH_HSPAP;
+			break;
+		default:
+			android_mode = RADIO_TECH_UNKNOWN;
+			break;
 	}
 
 	free(line);
-
+	
+	ALOGI("UNSOL_VOICE_RADIO_TECH_CHANGED -> %d",android_mode);
 	RIL_onUnsolicitedResponse(RIL_UNSOL_VOICE_RADIO_TECH_CHANGED, &android_mode, sizeof(int *));
 	return;
 
@@ -6959,7 +7022,13 @@ static void processRequest (int request, void *data, size_t datalen, RIL_Token t
         case RIL_REQUEST_QUERY_AVAILABLE_NETWORKS:
             requestQueryAvailableNetworks(t);
             break;
-        case RIL_REQUEST_SET_PREFERRED_NETWORK_TYPE:
+	case RIL_REQUEST_VOICE_RADIO_TECH:
+	    {
+		    int tech = 0x02;	
+		    RIL_onRequestComplete(t,RIL_E_SUCCESS,&tech,sizeof(tech));
+	    }
+	    break;
+	case RIL_REQUEST_SET_PREFERRED_NETWORK_TYPE:
             requestSetPreferredNetworkType(data, datalen, t);
             break;
         case RIL_REQUEST_GET_PREFERRED_NETWORK_TYPE:
@@ -7376,12 +7445,14 @@ static void onUnsolicited (const char *s, const char *sms_pdu)
 			enqueueRILEvent(stopAudioTunnel, NULL, NULL);
 			unsolicitedCEND(s);
 		}
-		
+#if 0
+	//disable call 	
 		RIL_onUnsolicitedResponse (
                 RIL_UNSOL_RESPONSE_CALL_STATE_CHANGED,
                 NULL, 0);
         enqueueRILEvent(onDataCallListChanged, NULL, NULL);
-
+#endif
+	at_send_command("AT+CHUP");
 	/* Data call status/start/end */
     } else if (strStartsWith(s,"^DCONN:") 
 			|| strStartsWith(s,"^DEND:")) {
@@ -7408,7 +7479,7 @@ static void onUnsolicited (const char *s, const char *sms_pdu)
         RIL_onUnsolicitedResponse (
                 RIL_UNSOL_RESPONSE_VOICE_NETWORK_STATE_CHANGED,
                 NULL, 0);
-        enqueueRILEvent(onDataCallListChanged, NULL, NULL);
+        //enqueueRILEvent(onDataCallListChanged, NULL, NULL);
     } else if (strStartsWith(s, "+CMT:")) {
         onNewSms(sms_pdu);
     } else if (strStartsWith(s, "+CBM:")) {
