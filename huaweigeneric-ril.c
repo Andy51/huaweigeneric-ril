@@ -115,6 +115,8 @@ C = is for?
 #include <cutils/logd.h>
 #include <stdbool.h>
 #include <stddef.h>
+//#include <netutils/dhcp.h>
+//#include <netutils/ifc.h>
 
 #include <linux/if.h>
 #include <linux/sockios.h>
@@ -1477,6 +1479,8 @@ static int setupPPP(RIL_Token t,const char* ctxid,const char* user,const char* p
 	gettimeofday(&from_tm,NULL);
 	
 	// Start PPPD
+	system("killall pppd");
+	sleep(1);
 	system(fmt);
 	free(cmd);
 	
@@ -1486,6 +1490,7 @@ static int setupPPP(RIL_Token t,const char* ctxid,const char* user,const char* p
 	// Wait until network interface is up and running 
 	if (ifc_init() < 0) {
 		ALOGE("Failed initialization of net ifc");
+		system("killall pppd");
 		return -1;
 	}
 	
@@ -1500,12 +1505,14 @@ static int setupPPP(RIL_Token t,const char* ctxid,const char* user,const char* p
 	
 	if (ctr <= 0) {
 		ALOGE("Net ifc %s was never upped!", PPP_IFACE);
+		system("killall  pppd");
 		return -1;
 	}
 	
 	/* Get PPP information by reading and parsing the PPPD log */
 	if (get_pppd_info(&from_tm, ppp_local_ip, ppp_dns1, ppp_dns2, ppp_gw) < 0) {
 		ALOGE("Unable to get dns/gw");
+		system("killall pppd");
 		return -1;
 	}
 	
@@ -1674,6 +1681,10 @@ static int setupNDIS(RIL_Token t,const char* ctxid)
 	
     at_response_free(atResponse);
 
+
+
+    
+
     responses.status = 0;
     responses.suggestedRetryTime = -1;
     responses.cid = 1;
@@ -1683,18 +1694,22 @@ static int setupNDIS(RIL_Token t,const char* ctxid)
     responses.addresses = rndis_local_ip;
     responses.dnses 	= rndis_dnses;
     responses.gateways 	= rndis_gw;
-	
+
+    char * p_name;
+    asprintf(&p_name,"net.%s.up",RNDIS_IFACE); 
+    property_set(p_name,"1");
+
+    free(p_name);
     /* Don't use android netutils. We use our own and get the routing correct.
      * Carl Nordbeck */
-    if (ifc_configure(RNDIS_IFACE, in_addr, in_gateway))
-	    ALOGE("%s() Failed to configure the interface %s", __func__, RNDIS_IFACE); 	
+    //if (ifc_configure(RNDIS_IFACE, in_addr, in_gateway))
+//	    ALOGE("%s() Failed to configure the interface %s", __func__, RNDIS_IFACE); 	
     using_rndis = 1;
     RIL_onRequestComplete(t, RIL_E_SUCCESS, &responses, sizeof(RIL_Data_Call_Response_v6));
     return 0;
 
 error:
 	ALOGE("Failed to start NDIS mode");
-
     at_response_free(atResponse);
     return -1;
 }
@@ -1726,7 +1741,7 @@ static int pppSupported(void)
 
 	at_response_free(atResponse);
 
-	return supp_mode != 1; // ppp supported
+	return supp_mode ==0; // ppp supported
 
 error:
 	ALOGD("Assuming PPP mode");
@@ -3141,7 +3156,7 @@ static void requestSIM_IO(void *data, size_t datalen, RIL_Token t)
         goto error;
 
 	line = atResponse->p_intermediates->line;
-
+	ALOGD("line:%s",line);	
 	err = at_tok_start(&line);
     if (err < 0) goto error;
 
@@ -5161,9 +5176,10 @@ static void unsolicitedSimStatus(const char * s)
     err = at_tok_nextint(&line, &state);
     if (err < 0) goto error;
 
-	ALOGD("SIM state: %d",state);
-	
+	ALOGD("[touched]SIM state: %d",state);
+	ALOGD("line:%s",s);
 	free(line);
+	ALOGD("after free sim status");
     return;
 
 error:

@@ -14,16 +14,18 @@ LOCAL_SRC_FILES := \
     gsm.c \
     huaweigeneric-ril.c \
     misc.c \
-	net-utils.c \
     requestdatahandler.c \
     sms.c \
-    sms_gsm.c
+    sms_gsm.c \
+	net-utils.c \
 
 LOCAL_SHARED_LIBRARIES := \
+    libc \
     libcutils \
     libutils \
     libril \
-    libmedia
+    libmedia \
+    libnetutils \
 
 # for asprinf
 LOCAL_CFLAGS := -D_GNU_SOURCE
