@@ -5158,6 +5158,7 @@ static void unsolicitedSimStatus(const char * s)
     int err;
     int state;
     char * line = NULL;
+    char * line2 = NULL;
 
     /*
     ^SIMST:0 Invalid USIM card state
@@ -5169,14 +5170,15 @@ static void unsolicitedSimStatus(const char * s)
     */
 
     line = strdup(s);
+    line2 = line;
 
-    err = at_tok_start(&line);
+    err = at_tok_start(&line2);
     if (err < 0) goto error;
 
-    err = at_tok_nextint(&line, &state);
+    err = at_tok_nextint(&line2, &state);
     if (err < 0) goto error;
 
-	ALOGD("[touched]SIM state: %d",state);
+	ALOGD("SIM state: %d",state);
 	ALOGD("line:%s",s);
 	free(line);
 	ALOGD("after free sim status");
