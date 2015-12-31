@@ -7382,7 +7382,11 @@ static char initializeCommon(void)
         "AT+CMEE=1",
 
         /* Enable RF */
-        "AT^RFSWITCH=1"
+        "AT^RFSWITCH=1",
+	
+	"AT^LEDCTRL=1",// init led status for MU709
+
+	"AT^SLEEPCFG=1,3600"
     };
 
     D("%s()", __func__);
